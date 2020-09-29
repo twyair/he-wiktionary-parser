@@ -35,9 +35,40 @@ class Section:
 
 
 @dataclass
+class Example:
+    text: str
+    kind: str  # plain-text, other
+    source: List[str]
+
+    @staticmethod
+    def from_str(s: str) -> "Example":
+        wt = wtp.parse(s)
+        if wt.templates:
+            t = wt.templates[0]
+            return Example(
+                text=t.arguments[0].value,
+                kind=t.name,
+                source=[x.value for x in t.arguments[1:]],
+            )
+        else:
+            return Example(text=s, kind="plain-text", source=[])
+
+
+@dataclass
 class Definition:
     definition: str
-    examples: List[str]
+    examples: List[Example]
+
+    # FIXME: rename
+    @staticmethod
+    def from_definition_and_str(t: str, exs) -> "Definition":
+        examples = wtp.parse(exs).get_lists("\#:\*")
+        return Definition(
+            definition=t,
+            examples=[Example.from_str(x) for x in examples[0].items]
+            if examples
+            else [],
+        )
 
 
 def get_list_from_subsection(section: Section, titles: List[str]) -> Optional[List]:
@@ -147,12 +178,12 @@ class Entry:
 
         l = sec.top.get_lists()
         definitions = (
-            list(
-                starmap(
-                    Definition,
-                    zip(l[0].items, map(lambda sl: sl.items, l[0].sublists())),
+            [
+                Definition.from_definition_and_str(
+                    t, l[0].sublists(i)[0].string if l[0].sublists(i) else ""
                 )
-            )
+                for i, t in enumerate(l[0].items)
+            ]
             if l
             else []
         )
