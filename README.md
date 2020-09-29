@@ -1,0 +1,1 @@
+# he-wiktionary-parser
