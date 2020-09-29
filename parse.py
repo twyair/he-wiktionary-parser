@@ -3,6 +3,7 @@ from typing import List, Dict, Tuple, Optional, Union, Sequence
 from itertools import starmap
 from collections import defaultdict
 import json
+import re
 
 import bs4
 import wikitextparser as wtp
@@ -58,16 +59,42 @@ class Example:
 class Definition:
     definition: str
     examples: List[Example]
+    register: Optional[str]
+    context: Optional[str]
+    time_period: Optional[str]
+    is_lacking: bool
+    # FIXME: rename
+    is_borrowed: bool
 
     # FIXME: rename
     @staticmethod
-    def from_definition_and_str(t: str, exs) -> "Definition":
+    def from_definition_and_str(definition: str, exs: str) -> "Definition":
         examples = wtp.parse(exs).get_lists("\#:\*")
+        definition_parsed = wtp.parse(definition)
+        tems = {
+            t.name: "|".join([x.value for x in t.arguments])
+            for t in definition_parsed.templates
+        }
+        # removes templates from the definition
+        for t in definition_parsed.templates:
+            t.string = ""
+        # converts wikilinks to text
+        for wl in definition_parsed.wikilinks:
+            wl.string = wl.text or wl.title
         return Definition(
-            definition=t,
+            definition=definition_parsed.string.strip(),
             examples=[Example.from_str(x) for x in examples[0].items]
             if examples
             else [],
+            register=tems.get("משלב")
+            or tems.get('משלב/ר"ת')
+            or ("סלנג" if "סלנג" in tems else None),
+            context=tems.get("הקשר"),
+            is_lacking="פירוש לקוי" in tems,
+            is_borrowed="בהשאלה" in tems,
+            time_period=tems.get("רובד")
+            or ("חזל" if "חזל" in tems else None)
+            or ("מקרא" if "מקרא" in tems else None),
         )
 
 
@@ -91,7 +118,7 @@ class WikiLink:
 
     @staticmethod
     def from_wtp_wikilink(wl) -> "WikiLink":
-        return WikiLink(text=wl.text, link=wl.title)
+        return WikiLink(text=wl.text or wl.title, link=wl.title)
 
 
 def parse_wikilinks(a) -> List[WikiLink]:
@@ -248,6 +275,7 @@ class Page:
     revision_id: int
     sha1: str
     entries: List[Entry]
+    # TODO: add `title`
 
     @staticmethod
     def from_xml(xml: bs4.Tag) -> "Page":
