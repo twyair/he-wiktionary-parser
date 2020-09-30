@@ -1,6 +1,6 @@
 # he-wiktionary-parser
 
-### how to use
+## how to use
 
 1. download the dump (in xml) of the hebrew wiktionary from [here](https://dumps.wikimedia.org/)
 2. in python
@@ -74,3 +74,6 @@ Entry(
     extra_info=None,
 )
 ```
+
+## TODO
+- remove wikitext markup from: examples, etymologies and grammar info items
