@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional, Union, Sequence
 from itertools import starmap
 from collections import defaultdict
+import re
 
 import bs4
 import wikitextparser as wtp
@@ -33,6 +34,22 @@ class Section:
         )
 
 
+def remove_markup(text: str) -> str:
+    w = wtp.parse(text)
+    for i in w.get_bolds(recursive=False):
+        try:
+            i.string = i.text
+        except TypeError:
+            i.string = ""
+    # remove templates
+    for t in w.templates:
+        t.string = ""
+    # convert wikilinks to text
+    for wl in w.wikilinks:
+        wl.string = wl.text or wl.title
+    return w.string.strip()
+
+
 @dataclass
 class Example:
     text: str
@@ -45,12 +62,12 @@ class Example:
         if wt.templates:
             t = wt.templates[0]
             return Example(
-                text=t.arguments[0].value if t.arguments else "",
+                text=remove_markup(t.arguments[0].value) if t.arguments else "",
                 kind=t.name,
                 source=[x.value for x in t.arguments[1:]],
             )
         else:
-            return Example(text=s, kind="plain-text", source=[])
+            return Example(text=remove_markup(s), kind="plain-text", source=[])
 
 
 @dataclass
@@ -68,19 +85,12 @@ class Definition:
     @staticmethod
     def from_definition_and_str(definition: str, exs: str) -> "Definition":
         examples = wtp.parse(exs).get_lists("\#:\*")
-        definition_parsed = wtp.parse(definition)
         tems = {
             t.name: "|".join([x.value for x in t.arguments])
-            for t in definition_parsed.templates
+            for t in wtp.parse(definition).templates
         }
-        # removes templates from the definition
-        for t in definition_parsed.templates:
-            t.string = ""
-        # converts wikilinks to text
-        for wl in definition_parsed.wikilinks:
-            wl.string = wl.text or wl.title
         return Definition(
-            definition=definition_parsed.string.strip(),
+            definition=remove_markup(definition),
             examples=[Example.from_str(x) for x in examples[0].items]
             if examples
             else [],
@@ -132,6 +142,63 @@ def parse_antonym(a: str) -> Sequence[Union[WikiLink, str]]:
     return wls
 
 
+wiktionary_gender_to_english: Dict[str, str] = {
+    "זכר": "male",
+    "נקבה": "female",
+    "ז": "male",
+    "נ": "female",
+    "זכר רבוי": "male plural",
+    "זכר רבים": "male plural",
+    "זכר ונקבה": "male and female",
+    "זכר ריבוי": "male plural",
+    "זכר זוגי": "male dual",
+    'זו"נ': "male and female",
+    "נקבה רבוי": "female plural",
+    "ז'": "male",
+    "נקבה ריבוי": "female plural",
+    "זכר יחיד": "male",
+    'ז"ר': "male plural",
+    "נ'": "female",
+}
+
+wiktionary_pos_to_english: Dict[str, str] = {
+    "שם־עצם": "noun",
+    "שם-עצם": "noun",
+    "שם עצם": "noun",
+    "צרף": "phrase",
+    "תואר": "adjective",
+    "שם־תואר": "adjective",
+    "תואר הפועל": "adverb",
+    "שם-תואר": "adjective",
+    "שם תואר": "adjective",
+    # "ע": "",
+    "שם פרטי": "proper noun",
+    "צירוף שמני": "noun",
+    "מילת קריאה": "interjection",
+    "פועל": "verb",
+    "שם־פעולה": "gerund",
+    "תואר־הפועל": "adverb",
+    "שם-פרטי": "proper noun",
+    "מילת חיבור": "conjunction",
+    "שם־פרטי": "proper noun",
+    "מילת יחס": "preposition",
+    "ביטוי": "expression",
+    "מילת שאלה": "interrogative",
+    # "צירוף": "",
+    "שם": "noun",
+    "שם עצם (תואר)": "noun",
+    # "שם־עצם פרטי": "",
+    # "היגד": "",
+    "תחילית": "prefix",
+    "שם־תאר": "adjective",
+    "שם־עצם, שם־תואר": "noun",
+    "תאר": "adjective",
+    "שם־עצם מופשט": "noun",
+}
+
+wiktionary_pronunciation_to_ipa: Dict[str, str] = {"׳": "ʔ", "'": "ʔ", "sh": "ʃ", "kh": "x", "ch": "x", "j": "ʒ", "y": "j",}
+wiktionary_pronunciation_regex = re.compile("(" + "|".join(wiktionary_pronunciation_to_ipa) + ")")
+
 @dataclass
 class GrammarInfo:
     pronunciation: Optional[str]
@@ -144,14 +211,45 @@ class GrammarInfo:
 
     @staticmethod
     def from_dict(d: Dict[str, str]) -> "GrammarInfo":
+        root = d.get("שורש")
+        if root is not None:
+            w = wtp.parse(root)
+            root = None
+            if w.templates:
+                t = w.templates[0]
+                if t.name == "שרש":
+                    root = t.arguments[0].value
+                elif t.name in {"שרש3", "שרש4", "שרש5"}:
+                    radicals_num = int(t.name[-1])
+                    root = "".join(map(lambda a: a.value, t.arguments[:radicals_num]))
+
+        gender = d.get("מין")
+        pos = d.get("חלק דיבר")
+        pronunciation = d.get("הגייה")
+        if pronunciation is not None:
+            w = wtp.parse(pronunciation)
+            for b in w.get_bolds():
+                try:
+                    b.string = "!" + b.text
+                except TypeError:
+                    b.string = "!"
+            pronunciation = wiktionary_pronunciation_regex.sub(
+                lambda x: wiktionary_pronunciation_to_ipa[x.group(1)],
+                w.string,
+            ).replace("!", "'")
+
         return GrammarInfo(
-            pronunciation=d.get("הגייה"),
-            ktiv_male=d.get("כתיב מלא"),
-            gender=d.get("מין"),
-            root=d.get("שורש"),
-            part_of_speech=d.get("חלק דיבר"),
-            morphology=d.get("דרך תצורה"),
-            declensions=d.get("נטיות"),
+            pronunciation=pronunciation or None,
+            ktiv_male=d.get("כתיב מלא") or None,
+            gender=wiktionary_gender_to_english.get(gender)
+            if gender is not None
+            else None,
+            root=root,
+            part_of_speech=wiktionary_pos_to_english.get(pos)
+            if pos is not None
+            else None,
+            morphology=d.get("דרך תצורה") or None,
+            declensions=d.get("נטיות") or None,
         )
 
 
