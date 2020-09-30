@@ -74,6 +74,3 @@ Entry(
     extra_info=None,
 )
 ```
-
-## TODO
-- remove wikitext markup from: examples and etymologies
