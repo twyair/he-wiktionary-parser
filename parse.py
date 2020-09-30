@@ -2,8 +2,6 @@ from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional, Union, Sequence
 from itertools import starmap
 from collections import defaultdict
-import json
-import re
 
 import bs4
 import wikitextparser as wtp
@@ -38,7 +36,7 @@ class Section:
 @dataclass
 class Example:
     text: str
-    kind: str  # plain-text, other
+    kind: str
     source: List[str]
 
     @staticmethod
@@ -47,7 +45,7 @@ class Example:
         if wt.templates:
             t = wt.templates[0]
             return Example(
-                text=t.arguments[0].value,
+                text=t.arguments[0].value if t.arguments else "",
                 kind=t.name,
                 source=[x.value for x in t.arguments[1:]],
             )
@@ -117,17 +115,17 @@ class WikiLink:
     link: str
 
     @staticmethod
-    def from_wtp_wikilink(wl) -> "WikiLink":
+    def from_wtp_wikilink(wl: wtp.WikiLink) -> "WikiLink":
         return WikiLink(text=wl.text or wl.title, link=wl.title)
 
 
-def parse_wikilinks(a) -> List[WikiLink]:
+def parse_wikilinks(a: str) -> List[WikiLink]:
     return list(map(WikiLink.from_wtp_wikilink, wtp.parse(a).wikilinks))
 
 
 # antonym_regex = re.compile(r'^(\s*\[\[(\w|\||\s|\-|#|\'|"|׳|״|־|[ְֲֳִֵֶַָֹֻּׁׂ])*\]\],?\s*)+(\s*\([^\)]*\))*\.?$|^\s*$')
 # TODO: include the definition number (it's in paren's)
-def parse_antonym(a) -> Sequence[Union[WikiLink, str]]:
+def parse_antonym(a: str) -> Sequence[Union[WikiLink, str]]:
     wls: Sequence[Union[WikiLink, str]] = parse_wikilinks(a)
     if not wls and a.strip():
         return [a]
@@ -147,13 +145,13 @@ class GrammarInfo:
     @staticmethod
     def from_dict1(d: Dict[str, str]) -> "GrammarInfo":
         return GrammarInfo(
-            pronunciation=d.get("הגייה", None),
-            ktiv_male=d.get("כתיב מלא", None),
-            gender=d.get("מין", None),
-            root=d.get("שורש", None),
-            part_of_speech=d.get("חלק דיבר", None),
-            morphology=d.get("דרך תצורה", None),
-            declensions=d.get("נטיות", None),
+            pronunciation=d.get("הגייה"),
+            ktiv_male=d.get("כתיב מלא"),
+            gender=d.get("מין"),
+            root=d.get("שורש"),
+            part_of_speech=d.get("חלק דיבר"),
+            morphology=d.get("דרך תצורה"),
+            declensions=d.get("נטיות"),
         )
 
 
@@ -275,7 +273,7 @@ class Page:
     revision_id: int
     sha1: str
     entries: List[Entry]
-    # TODO: add `title`
+    title: str
 
     @staticmethod
     def from_xml(xml: bs4.Tag) -> "Page":
@@ -285,6 +283,7 @@ class Page:
         sections = parsed.get_sections(level=2)
 
         return Page(
+            title=xml.title.get_text(),
             pid=int(xml.id.get_text()),
             revision_id=int(rev.id.get_text()),
             sha1=rev.sha1.get_text(),
