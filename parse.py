@@ -143,7 +143,7 @@ class GrammarInfo:
     declensions: Optional[str]
 
     @staticmethod
-    def from_dict1(d: Dict[str, str]) -> "GrammarInfo":
+    def from_dict(d: Dict[str, str]) -> "GrammarInfo":
         return GrammarInfo(
             pronunciation=d.get("הגייה"),
             ktiv_male=d.get("כתיב מלא"),
@@ -180,7 +180,7 @@ class Entry:
             info = {}
             for arg in tem.arguments[1:]:
                 info[arg.name.strip()] = arg.value.strip()
-            grammatical_info = GrammarInfo.from_dict1(info)
+            grammatical_info = GrammarInfo.from_dict(info)
 
         translations = defaultdict(list)
         if "תרגום" in sec.subsections:
@@ -191,15 +191,10 @@ class Entry:
 
         external_links = {}
         if "קישורים חיצוניים" in sec.subsections:
-            tem = next(
-                filter(
-                    lambda t: t.name == "מיזמים",
-                    sec.subsections["קישורים חיצוניים"].top.templates,
-                )
-            )
-            if tem is not None:
-                for arg in tem.arguments:
-                    external_links[arg.name] = arg.value
+            for temp in sec.subsections["קישורים חיצוניים"].top.templates:
+                if temp.name == "מיזמים":
+                    for arg in temp.arguments:
+                        external_links[arg.name] = arg.value
 
         l = sec.top.get_lists()
         definitions = (
