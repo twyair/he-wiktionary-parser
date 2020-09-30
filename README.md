@@ -14,11 +14,11 @@ pages = parse_pages("path/to/wiktionary/dump.xml")
 Entry(
     title="מִלּוֹן",
     grammatical_info=GrammarInfo(
-        pronunciation="mi'''lon'''",
+        pronunciation="mi'lon",
         ktiv_male="מילון",
-        gender="זכר",
-        root="{{שרש3|מ|ל|ל}}",
-        part_of_speech="שם־עצם",
+        gender="male",
+        root="מלל",
+        part_of_speech="noun",
         morphology="{{מוספית|מלה|מנוקד=מִלָּה|־וֹן}}",
         declensions="ר' מִלּוֹנִים או מִלּוֹנוֹת; מִלּוֹן־, ר' מִלּוֹנֵי־ מִלּוֹנִי,",
     ),
@@ -27,7 +27,7 @@ Entry(
             definition="אוסף מילים מבוארות בשפה מסוימת, לרוב ערוּך כספר. מילון דו לשוני מכיל את אוצר המילים של שפה מסוימת, ובצד כל מילה מובאות מקבילותיה בשפה אחרת (למשל: מילון עברי־אנגלי).",
             examples=[
                 Example(
-                    text=" \"את 'ה'''מילון''' החדש' ערך ה[[מלונאי|מילונאי]] וה[[לשונאי]] אברהם אבן־שושן\".",
+                    text="\"את 'המילון החדש' ערך המילונאי והלשונאי אברהם אבן־שושן\".",
                     kind="plain-text",
                     source=[],
                 )
