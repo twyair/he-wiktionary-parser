@@ -76,4 +76,4 @@ Entry(
 ```
 
 ## TODO
-- remove wikitext markup from: examples, etymologies and grammar info items
+- remove wikitext markup from: examples and etymologies
