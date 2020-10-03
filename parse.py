@@ -36,18 +36,28 @@ class Section:
 
 def remove_markup(text: str) -> str:
     w = wtp.parse(text)
-    for i in w.get_bolds(recursive=False):
+    
+    for t in reversed(w.get_bolds(recursive=False)):
         try:
-            i.string = i.text
-        except TypeError:
-            i.string = ""
-    # remove templates
-    for t in w.templates:
-        t.string = ""
-    # convert wikilinks to text
-    for wl in w.wikilinks:
-        wl.string = wl.text or wl.title
-    return w.string.strip()
+            t[:] = t.text
+        except:
+            continue
+    for t in reversed(w.get_italics(recursive=False)):
+        try:
+            t[:] = t.text
+        except:
+            continue
+    for t in reversed(w.wikilinks):
+        if t.wikilinks:
+            del t[:]  # image
+        else:
+            t[:] = t.text or t.target
+    for t in reversed(w.get_tags()):
+        try:
+            t[:] = t.contents
+        except:
+            continue
+    return w.plain_text(replace_wikilinks=False, replace_italics=False, replace_tags=False, replace_bolds=False, _mutate=True).strip()
 
 
 @dataclass
@@ -126,7 +136,7 @@ class WikiLink:
 
     @staticmethod
     def from_wtp_wikilink(wl: wtp.WikiLink) -> "WikiLink":
-        return WikiLink(text=wl.text or wl.title, link=wl.title)
+        return WikiLink(text=wl.text or wl.target, link=wl.target)
 
 
 def parse_wikilinks(a: str) -> List[WikiLink]:
@@ -196,8 +206,19 @@ wiktionary_pos_to_english: Dict[str, str] = {
     "שם־עצם מופשט": "noun",
 }
 
-wiktionary_pronunciation_to_ipa: Dict[str, str] = {"׳": "ʔ", "'": "ʔ", "sh": "ʃ", "kh": "x", "ch": "x", "j": "ʒ", "y": "j",}
-wiktionary_pronunciation_regex = re.compile("(" + "|".join(wiktionary_pronunciation_to_ipa) + ")")
+wiktionary_pronunciation_to_ipa: Dict[str, str] = {
+    "׳": "ʔ",
+    "'": "ʔ",
+    "sh": "ʃ",
+    "kh": "x",
+    "ch": "x",
+    "j": "dʒ",
+    "y": "j",
+}
+wiktionary_pronunciation_regex = re.compile(
+    "(" + "|".join(wiktionary_pronunciation_to_ipa) + ")"
+)
+
 
 @dataclass
 class GrammarInfo:
@@ -228,14 +249,13 @@ class GrammarInfo:
         pronunciation = d.get("הגייה")
         if pronunciation is not None:
             w = wtp.parse(pronunciation)
-            for b in w.get_bolds():
+            for b in reversed(w.get_bolds(recursive=False)):
                 try:
-                    b.string = "!" + b.text
-                except TypeError:
-                    b.string = "!"
+                    b[:] = "!" + b.text
+                except:
+                    b[:] = "!"
             pronunciation = wiktionary_pronunciation_regex.sub(
-                lambda x: wiktionary_pronunciation_to_ipa[x.group(1)],
-                w.string,
+                lambda x: wiktionary_pronunciation_to_ipa[x.group(1)], w.string,
             ).replace("!", "'")
 
         return GrammarInfo(
