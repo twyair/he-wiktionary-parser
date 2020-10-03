@@ -339,7 +339,7 @@ class Entry:
         )
 
         # FIXME: its not always a list [see https://he.wiktionary.org/wiki/%D7%99%D7%A9%D7%95%D7%9E%D7%95%D7%9F]
-        etymology = get_list_from_subsection(sec, ["גיזרון", "גזרון"]) or []
+        etymology = list(map(remove_markup, get_list_from_subsection(sec, ["גיזרון", "גזרון"]) or []))
 
         synonyms = antonyms = list(
             mi.flatten(
