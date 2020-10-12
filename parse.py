@@ -36,7 +36,7 @@ class Section:
 
 def remove_markup(text: str) -> str:
     w = wtp.parse(text)
-    
+
     for t in reversed(w.get_bolds(recursive=False)):
         try:
             t[:] = t.text
@@ -57,7 +57,13 @@ def remove_markup(text: str) -> str:
             t[:] = t.contents
         except:
             continue
-    return w.plain_text(replace_wikilinks=False, replace_italics=False, replace_tags=False, replace_bolds=False, _mutate=True).strip()
+    return w.plain_text(
+        replace_wikilinks=False,
+        replace_italics=False,
+        replace_tags=False,
+        replace_bolds=False,
+        _mutate=True,
+    ).strip()
 
 
 @dataclass
@@ -220,6 +226,60 @@ wiktionary_pronunciation_regex = re.compile(
 )
 
 
+wiktionary_form_tag: Dict[str, str] = {
+    "ר'": "plural",
+    "נ'": "female",
+    'נ"ר': "female plural",
+    "כ'": "possessive",
+    'נ"י:': "female",
+    "ר׳": "plural",
+    'ס"ר': "construct plural",
+    "ר':": "plural",
+    'נ"ר:': "female plural",
+    "כ':": "possessive",
+    "נ':": "female",
+    'ר"נ:': "female plural",
+    'ר"ז:': "male plural",
+    "ס'": "construct",
+    "נ׳": "female",
+    "נס'": "female construct",
+    "נ״ר": "female plural",
+    "<BR>ר'": "plural",
+    '<BR>נ"ר': "female plural",
+    '<br>נ"ר': "female plural",
+    "זוגי": "dual",
+    # "הפסק:": "x",
+    "רבים": "plural",
+    "ז'": "male",
+    "יחיד": "singular",
+    'נ"נ:': "female construct",
+    "זוגי:": "dual",
+    "ס״ר": "construct plural",
+    'נ"י': "female",
+    "נסמך": "construct",
+    'ס"י:': "construct",
+    "שלי:": "possessive",
+    "שלו:": "possessive",
+    "ס׳": "construct",
+    # "הפסק": "x",
+    "י'": "singular",
+    "(נ'": "female",
+    'ז"ר': "male plural",
+    'ס"ר:': "construct plural",
+    "יחידה:": "female",
+    "ר": "plural",
+    "ביידוע:": "definite",
+}
+
+form_tag_regex = re.compile("("+ "|".join(map(re.escape, wiktionary_form_tag)) + ")")
+
+decl_delim_regex = re.compile(r"\s*[,;]\s*")
+
+def parse_form(f):
+    if (m := form_tag_regex.match(f)):
+        return wiktionary_form_tag[m.group(1)], f.split(maxsplit=1)[1]
+    return None, f
+
 @dataclass
 class GrammarInfo:
     pronunciation: Optional[str]
@@ -228,7 +288,7 @@ class GrammarInfo:
     root: Optional[str]
     part_of_speech: Optional[str]
     morphology: Optional[str]
-    declensions: Optional[str]
+    declensions: Optional[List[Tuple[str, str]]]
 
     @staticmethod
     def from_dict(d: Dict[str, str]) -> "GrammarInfo":
@@ -258,6 +318,10 @@ class GrammarInfo:
                 lambda x: wiktionary_pronunciation_to_ipa[x.group(1)], w.string,
             ).replace("!", "'")
 
+        declensions = None
+        if (decls := d.get("נטיות")):
+            declensions = list(map(parse_form, decl_delim_regex.split(decls)))
+
         return GrammarInfo(
             pronunciation=pronunciation or None,
             ktiv_male=d.get("כתיב מלא") or None,
@@ -269,7 +333,7 @@ class GrammarInfo:
             if pos is not None
             else None,
             morphology=d.get("דרך תצורה") or None,
-            declensions=d.get("נטיות") or None,
+            declensions=declensions,
         )
 
 
@@ -300,12 +364,13 @@ class Entry:
                 info[arg.name.strip()] = arg.value.strip()
             grammatical_info = GrammarInfo.from_dict(info)
 
-        translations = defaultdict(list)
+        translations: Dict[str, List[str]] = defaultdict(list)
         if "תרגום" in sec.subsections:
             tems = [t for t in sec.subsections["תרגום"].top.templates if t.name == "ת"]
             for t in tems:
                 if len(t.arguments) >= 2:
                     translations[t.arguments[0].value].append(t.arguments[1].value)
+        translations = dict(translations)
 
         external_links = {}
         if "קישורים חיצוניים" in sec.subsections:
@@ -338,8 +403,10 @@ class Entry:
             )
         )
 
-        # FIXME: its not always a list [see https://he.wiktionary.org/wiki/%D7%99%D7%A9%D7%95%D7%9E%D7%95%D7%9F]
-        etymology = list(map(remove_markup, get_list_from_subsection(sec, ["גיזרון", "גזרון"]) or []))
+        # FIXME: it's not always a list [see https://he.wiktionary.org/wiki/%D7%99%D7%A9%D7%95%D7%9E%D7%95%D7%9F]
+        etymology = list(
+            map(remove_markup, get_list_from_subsection(sec, ["גיזרון", "גזרון"]) or [])
+        )
 
         synonyms = antonyms = list(
             mi.flatten(
