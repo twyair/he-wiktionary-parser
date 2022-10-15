@@ -1,12 +1,22 @@
+from __future__ import annotations
+
+import argparse
+import bz2
 from dataclasses import dataclass
-from typing import List, Dict, Tuple, Optional, Union, Sequence
-from itertools import starmap
+import json
+import string
+import traceback
+from typing import List, Dict, Tuple, Optional, TypeVar, Union, Sequence
+import itertools
 from collections import defaultdict
 import re
 
+import cattrs
 import bs4
 import wikitextparser as wtp
-import more_itertools as mi
+
+
+flatten = itertools.chain.from_iterable
 
 
 @dataclass
@@ -26,7 +36,7 @@ class Section:
         ]
         top_section = sec.get_sections(False, level=sec.level)[0]
         return Section(
-            title=sec.title.strip(),
+            title=not_none(sec.title).strip(),
             top=top_section,
             top_span=top_section.span,
             subsections={s.title: s for s in subsections},
@@ -54,14 +64,13 @@ def remove_markup(text: str) -> str:
             t[:] = t.text or t.target
     for t in reversed(w.get_tags()):
         try:
-            t[:] = t.contents
+            t[:] = not_none(t.contents)
         except:
             continue
     return w.plain_text(
         replace_wikilinks=False,
-        replace_italics=False,
         replace_tags=False,
-        replace_bolds=False,
+        replace_bolds_and_italics=False,
         _mutate=True,
     ).strip()
 
@@ -100,7 +109,7 @@ class Definition:
     # FIXME: rename
     @staticmethod
     def from_definition_and_str(definition: str, exs: str) -> "Definition":
-        examples = wtp.parse(exs).get_lists("\#:\*")
+        examples = wtp.parse(exs).get_lists(r"\#:\*")
         tems = {
             t.name: "|".join([x.value for x in t.arguments])
             for t in wtp.parse(definition).templates
@@ -131,7 +140,7 @@ def get_list_from_subsection(section: Section, titles: List[str]) -> Optional[Li
     if subsection is not None:
         ls = subsection.top.get_lists()
         if ls:
-            return list(mi.flatten(map(lambda l: l.items, ls)))
+            return list(flatten(map(lambda l: l.items, ls)))
     return None
 
 
@@ -217,8 +226,9 @@ wiktionary_pronunciation_to_ipa: Dict[str, str] = {
     "'": "ʔ",
     "sh": "ʃ",
     "kh": "x",
-    "ch": "x",
-    "j": "dʒ",
+    "ch": "tʃ",
+    # "dj": "dʒ",
+    "j": "ʒ",
     "y": "j",
 }
 wiktionary_pronunciation_regex = re.compile(
@@ -271,14 +281,22 @@ wiktionary_form_tag: Dict[str, str] = {
     "ביידוע:": "definite",
 }
 
-form_tag_regex = re.compile("("+ "|".join(map(re.escape, wiktionary_form_tag)) + ")")
+form_tag_regex = re.compile("(" + "|".join(map(re.escape, wiktionary_form_tag)) + ")")
 
 decl_delim_regex = re.compile(r"\s*[,;]\s*")
 
-def parse_form(f):
-    if (m := form_tag_regex.match(f)):
-        return wiktionary_form_tag[m.group(1)], f.split(maxsplit=1)[1]
-    return None, f
+
+def parse_form(f: str) -> tuple[str, str]:
+    if " " in f:
+        if m := form_tag_regex.match(f):
+            try:
+                return wiktionary_form_tag[m.group(1)], f.split(maxsplit=1)[1]
+            except Exception:
+                print("form:", f, "m:", m)
+    elif f.endswith("־"):
+        return "construct", f[:-1]
+    return "unknown", f
+
 
 @dataclass
 class GrammarInfo:
@@ -315,11 +333,12 @@ class GrammarInfo:
                 except:
                     b[:] = "!"
             pronunciation = wiktionary_pronunciation_regex.sub(
-                lambda x: wiktionary_pronunciation_to_ipa[x.group(1)], w.string,
+                lambda x: wiktionary_pronunciation_to_ipa[x.group(1)],
+                w.string,
             ).replace("!", "'")
 
         declensions = None
-        if (decls := d.get("נטיות")):
+        if decls := d.get("נטיות"):
             declensions = list(map(parse_form, decl_delim_regex.split(decls)))
 
         return GrammarInfo(
@@ -392,13 +411,22 @@ class Entry:
         )
 
         expressions = list(
-            mi.flatten(
-                map(parse_wikilinks, get_list_from_subsection(sec, ["צירופים",]) or [])
+            flatten(
+                map(
+                    parse_wikilinks,
+                    get_list_from_subsection(
+                        sec,
+                        [
+                            "צירופים",
+                        ],
+                    )
+                    or [],
+                )
             )
         )
 
         see_also = list(
-            mi.flatten(
+            flatten(
                 map(parse_wikilinks, get_list_from_subsection(sec, ["ראו גם"]) or [])
             )
         )
@@ -409,7 +437,7 @@ class Entry:
         )
 
         synonyms = antonyms = list(
-            mi.flatten(
+            flatten(
                 map(
                     parse_antonym, get_list_from_subsection(sec, ["מילים נרדפות"]) or []
                 )
@@ -417,7 +445,7 @@ class Entry:
         )
 
         antonyms = list(
-            mi.flatten(
+            flatten(
                 map(
                     parse_antonym,
                     get_list_from_subsection(sec, ["ניגודים", "הפכים"]) or [],
@@ -426,7 +454,7 @@ class Entry:
         )
 
         derivatives = list(
-            mi.flatten(
+            flatten(
                 map(parse_wikilinks, get_list_from_subsection(sec, ["נגזרות"]) or [])
             )
         )
@@ -447,6 +475,14 @@ class Entry:
         )
 
 
+T = TypeVar("T")
+
+
+def not_none(v: T | None) -> T:
+    assert v is not None
+    return v
+
+
 @dataclass
 class Page:
     pid: int
@@ -458,31 +494,59 @@ class Page:
     @staticmethod
     def from_xml(xml: bs4.Tag) -> "Page":
         rev = xml.revision
-        text = rev.find("text").get_text()
+        text = not_none(not_none(rev).find("text")).get_text()
         parsed = wtp.parse(text)
         sections = parsed.get_sections(level=2)
 
         return Page(
-            title=xml.title.get_text(),
-            pid=int(xml.id.get_text()),
-            revision_id=int(rev.id.get_text()),
-            sha1=rev.sha1.get_text(),
+            title=not_none(xml.title).get_text(),
+            pid=int(not_none(xml.id).get_text()),
+            revision_id=int(not_none(not_none(rev).id).get_text()),
+            sha1=not_none(not_none(rev).sha1).get_text(),
             entries=list(
                 map(Entry.from_section, [Section.from_wtp_section(s) for s in sections])
             ),
         )
 
 
+def try_parse_page(xml: bs4.Tag) -> Page | None:
+    try:
+        return Page.from_xml(xml)
+    except Exception as exc:
+        print(not_none(xml.title).get_text(), exc, traceback.print_exc())
+        return None
+
+
 def parse_pages(path: str) -> List[Page]:
-    with open(path) as f:
+    with bz2.open(path, "rt") as f:
         soup = bs4.BeautifulSoup(f.read(), "xml")
 
     return list(
-        map(
-            Page.from_xml,
-            filter(
-                lambda p: p.ns.text == "0",
-                soup.mediawiki.find_all("page", recursive=False),
+        filter(
+            None,
+            map(
+                try_parse_page,
+                filter(
+                    lambda p: p.ns.text == "0",
+                    not_none(soup.mediawiki).find_all("page", recursive=False),
+                ),
             ),
         )
     )
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("dump")
+    ns = ap.parse_args()
+    pages = [
+        p
+        for p in parse_pages(ns.dump)
+        if not (set(p.title) & set(string.ascii_letters))
+    ]
+    with open("pages.json", "w") as fh:
+        json.dump(cattrs.unstructure(pages), fh)
+
+
+if __name__ == "__main__":
+    main()

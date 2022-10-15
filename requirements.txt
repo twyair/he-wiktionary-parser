@@ -1,6 +1,0 @@
-beautifulsoup4==4.9.2
-more-itertools==8.5.0
-regex==2020.9.27
-soupsieve==2.0.1
-wcwidth==0.2.5
-wikitextparser==0.45.2
